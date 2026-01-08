@@ -2520,27 +2520,36 @@
                 });
         }
         
-        // 使用 Google Translate TTS 播放（備用方案，帶 CORS Proxy）
+        // 使用 Google Translate TTS 播放（備用方案，帶智能記憶）
         function speakWithGoogleTTS(text) {
             return new Promise((resolve, reject) => {
-                console.log('=== Google TTS 播放（多重備用） ===');
+                console.log('=== Google TTS 播放（智能優化） ===');
                 console.log('文字:', text);
                 
                 try {
                     // Google Translate TTS URL（非官方 API）
                     const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=es&q=${encodeURIComponent(text)}`;
                     
-                    // 多個備用方案（依序嘗試）
-                    const urlOptions = [
-                        // 方案 1：直接請求（最快，優先嘗試）
-                        { url: ttsUrl, name: '直接請求' },
-                        
-                        // 方案 2：AllOrigins CORS Proxy（免費、穩定）
-                        { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(ttsUrl)}`, name: 'AllOrigins Proxy' },
-                        
-                        // 方案 3：corsproxy.io（備用）
-                        { url: `https://corsproxy.io/?${encodeURIComponent(ttsUrl)}`, name: 'CORSProxy' }
+                    // 所有備用方案
+                    const allOptions = [
+                        { url: ttsUrl, name: '直接請求', id: 'direct' },
+                        { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(ttsUrl)}`, name: 'AllOrigins', id: 'allorigins' },
+                        { url: `https://corsproxy.io/?${encodeURIComponent(ttsUrl)}`, name: 'CORSProxy', id: 'corsproxy' }
                     ];
+                    
+                    // 讀取上次成功的方案
+                    const lastSuccess = localStorage.getItem('googleTTSSuccess');
+                    
+                    // 重新排序：把上次成功的放第一
+                    let urlOptions = [...allOptions];
+                    if (lastSuccess) {
+                        const successIndex = urlOptions.findIndex(opt => opt.id === lastSuccess);
+                        if (successIndex > 0) {
+                            const successOption = urlOptions.splice(successIndex, 1)[0];
+                            urlOptions.unshift(successOption);
+                            console.log(`💡 優先使用上次成功的: ${successOption.name}`);
+                        }
+                    }
                     
                     let currentIndex = 0;
                     let resolved = false;
@@ -2555,7 +2564,7 @@
                         }
                         
                         const option = urlOptions[currentIndex];
-                        console.log(`🔄 嘗試方案 ${currentIndex + 1}/${urlOptions.length}: ${option.name}`);
+                        console.log(`🔄 嘗試 ${currentIndex + 1}/${urlOptions.length}: ${option.name}`);
                         currentIndex++;
                         
                         const audio = new Audio(option.url);
@@ -2563,18 +2572,22 @@
                         
                         audio.oncanplaythrough = function() {
                             if (resolved) return;
-                            console.log(`✅ ${option.name} 音檔載入成功`);
+                            console.log(`✅ ${option.name} 音檔載入`);
                             
                             audio.play()
                                 .then(() => {
                                     if (resolved) return;
                                     resolved = true;
                                     console.log(`✅ ${option.name} 播放成功`);
+                                    
+                                    // 記住成功的方案
+                                    localStorage.setItem('googleTTSSuccess', option.id);
+                                    
                                     resolve();
                                 })
                                 .catch(error => {
                                     if (resolved) return;
-                                    console.log(`❌ ${option.name} 播放失敗:`, error.message);
+                                    console.log(`❌ ${option.name} 播放失敗`);
                                     tryNextUrl();
                                 });
                         };
@@ -2585,13 +2598,13 @@
                             tryNextUrl();
                         };
                         
-                        // 每個方案 3 秒超時
+                        // 優化：減少超時到 1.5 秒（更快失敗，更快嘗試下一個）
                         setTimeout(() => {
                             if (!resolved && audio.readyState < 3) {
                                 console.log(`⏱️ ${option.name} 超時`);
                                 tryNextUrl();
                             }
-                        }, 3000);
+                        }, 1500);
                     }
                     
                     tryNextUrl();
